@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Deadmen's Wanderland</title>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:Trebuchet MS,sans-serif;}
+body{background:radial-gradient(circle at top,#1a0000,#000);color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;}
+
+#gameWrapper{position:relative;width:800px;height:500px;border:3px solid #7a0000;box-shadow:0 0 30px #7a0000;overflow:hidden;background:radial-gradient(circle at top,#220000,#000);}
+
+#ui{position:absolute;top:10px;left:10px;z-index:10;font-size:16px;}
+#healthBar{width:200px;height:14px;border:2px solid white;margin-top:5px;}
+#health{height:100%;width:100%;background:linear-gradient(90deg,red,crimson);}
+
+#player{position:absolute;width:35px;height:35px;background:radial-gradient(circle,#fff,#999);border-radius:50%;box-shadow:0 0 15px white;}
+
+.enemy{position:absolute;background:radial-gradient(circle,crimson,darkred);box-shadow:0 0 20px red;}
+.circle{border-radius:50%;width:32px;height:32px;}
+.square{width:32px;height:32px;}
+.triangle{width:0;height:0;border-left:16px solid transparent;border-right:16px solid transparent;border-bottom:30px solid darkred;}
+
+.bullet{position:absolute;width:7px;height:7px;border-radius:50%;box-shadow:0 0 12px;}
+
+.blast{position:absolute;border-radius:50%;border:3px solid cyan;box-shadow:0 0 30px cyan;animation:blast .5s linear forwards;}
+@keyframes blast{from{width:30px;height:30px;opacity:1;}to{width:280px;height:280px;opacity:0;}}
+
+#safeZone{position:absolute;width:80px;height:80px;background:rgba(0,255,0,.3);border:2px dashed lime;border-radius:10px;display:none;z-index:5;}
+
+.medic{position:absolute;width:22px;height:22px;background:radial-gradient(circle,#00ff99,#006644);border-radius:50%;box-shadow:0 0 15px #00ff99;border:2px solid white;}
+
+#gameOver{position:absolute;inset:0;background:rgba(0,0,0,.85);display:none;justify-content:center;align-items:center;flex-direction:column;z-index:20;}
+#gameOver h1{color:crimson;font-size:48px;margin-bottom:20px;}
+</style>
+</head>
+<body>
+
+<div id="gameWrapper">
+<div id="ui">
+❤️ Health
+<div id="healthBar"><div id="health"></div></div>
+🩸 Level: <span id="level">1</span><br>
+⏱ Time: <span id="time">60</span><br>
+⚡ Blasts: <span id="blasts">3</span>
+</div>
+
+<div id="player"></div>
+<div id="safeZone"></div>
+
+<div id="gameOver">
+<h1 id="msg">YOU DIED</h1>
+<p id="final"></p><br>
+<button onclick="location.reload()">Restart</button>
+</div>
+</div>
+
+<script>
+const game=document.getElementById("gameWrapper");
+const player=document.getElementById("player");
+const healthBar=document.getElementById("health");
+const timeText=document.getElementById("time");
+const levelText=document.getElementById("level");
+const safeZoneEl=document.getElementById("safeZone");
+const blastText=document.getElementById("blasts");
+const gameOverScreen=document.getElementById("gameOver");
+const finalText=document.getElementById("final");
+
+let px=380,py=230,speed=4;
+let enemies=[],bullets=[],medics=[],keys={};
+let health=100,level=1,time=60,playing=true;
+
+let maxBlasts=3;
+let blasts=maxBlasts;
+
+/* sounds */
+const shootSound=new Audio("https://freesound.org/data/previews/320/320655_5260877-lq.mp3");
+const blastSound=new Audio("https://freesound.org/data/previews/466/466178_10009974-lq.mp3");
+const hitSound=new Audio("https://freesound.org/data/previews/256/256113_3263906-lq.mp3");
+
+document.addEventListener("keydown",e=>keys[e.key.toLowerCase()]=true);
+document.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
+
+/* shooting */
+game.addEventListener("click",e=>{
+if(!playing)return;
+const b=document.createElement("div");
+b.className="bullet";
+let color=`hsl(${Math.random()*360},100%,60%)`;
+b.style.background=color;
+b.style.boxShadow=`0 0 12px ${color}`;
+b.x=px+17;b.y=py+17;
+const r=game.getBoundingClientRect();
+let mx=e.clientX-r.left,my=e.clientY-r.top;
+let dx=mx-b.x,dy=my-b.y,d=Math.hypot(dx,dy);
+b.vx=dx/d*7;b.vy=dy/d*7;
+game.appendChild(b);bullets.push(b);
+shootSound.currentTime=0;shootSound.play();
+});
+
+/* energy blast */
+document.addEventListener("keydown",e=>{
+if(e.key.toLowerCase()=="f"&&playing&&blasts>0){
+blasts--;blastText.textContent=blasts;
+const blast=document.createElement("div");
+blast.className="blast";
+blast.style.left=px-120+"px";
+blast.style.top=py-120+"px";
+game.appendChild(blast);
+blastSound.currentTime=0;blastSound.play();
+enemies.forEach(en=>{
+let dx=px-en.offsetLeft,dy=py-en.offsetTop;
+if(Math.hypot(dx,dy)<140)en.remove();
+});
+setTimeout(()=>blast.remove(),500);
+}
+});
+
+/* spawn enemy */
+function spawnEnemy(n=1){
+for(let i=0;i<n;i++){
+const e=document.createElement("div");
+e.classList.add("enemy");
+["circle","square","triangle"][Math.floor(Math.random()*3)]&&e.classList.add(["circle","square","triangle"][Math.floor(Math.random()*3)]);
+let s=Math.floor(Math.random()*4),x,y;
+if(s==0){x=0;y=Math.random()*470}
+if(s==1){x=770;y=Math.random()*470}
+if(s==2){x=Math.random()*770;y=0}
+if(s==3){x=Math.random()*770;y=470}
+e.style.left=x+"px";e.style.top=y+"px";
+game.appendChild(e);enemies.push(e);
+}
+}
+
+/* spawn medic */
+function spawnMedic(){
+const m=document.createElement("div");
+m.className="medic";
+let s=Math.floor(Math.random()*4),x,y;
+if(s==0){x=0;y=Math.random()*470}
+if(s==1){x=770;y=Math.random()*470}
+if(s==2){x=Math.random()*770;y=0}
+if(s==3){x=Math.random()*770;y=470}
+m.style.left=x+"px";m.style.top=y+"px";
+game.appendChild(m);medics.push(m);
+}
+
+/* safe zone */
+function showSafeZone(){
+safeZoneEl.style.display="block";
+safeZoneEl.style.left=Math.random()*720+"px";
+safeZoneEl.style.top=Math.random()*420+"px";
+setTimeout(()=>safeZoneEl.style.display="none",10000);
+}
+
+/* game loop */
+function gameLoop(){
+if(!playing)return;
+
+/* movement */
+if(keys.w||keys.arrowup)py-=speed;
+if(keys.s||keys.arrowdown)py+=speed;
+if(keys.a||keys.arrowleft)px-=speed;
+if(keys.d||keys.arrowright)px+=speed;
+px=Math.max(0,Math.min(765,px));
+py=Math.max(0,Math.min(465,py));
+player.style.left=px+"px";player.style.top=py+"px";
+
+/* enemies */
+enemies.forEach(enemy=>{
+let ex=enemy.offsetLeft,ey=enemy.offsetTop;
+let dx=px-ex,dy=py-ey,dist=Math.hypot(dx,dy);
+
+if(safeZoneEl.style.display=="block"){
+let sx=parseFloat(safeZoneEl.style.left),sy=parseFloat(safeZoneEl.style.top);
+let cx=ex+16,cy=ey+16;
+if(cx>sx&&cx<sx+80&&cy>sy&&cy<sy+80){dx=0;dy=0;}
+}
+
+if(dx||dy){
+let m=Math.hypot(dx,dy);
+enemy.style.left=ex+dx/m*(1.3+level*.3)+"px";
+enemy.style.top=ey+dy/m*(1.3+level*.3)+"px";
+}
+
+let sx=parseFloat(safeZoneEl.style.left),sy=parseFloat(safeZoneEl.style.top);
+let inSafe=safeZoneEl.style.display=="block"&&(px>sx&&px<sx+80&&py>sy&&py<sy+80);
+if(dist<26&&!inSafe){
+health-=0.4*level;
+healthBar.style.width=health+"%";
+hitSound.currentTime=0;hitSound.play();
+game.style.transform=`translate(${Math.random()*8-4}px,${Math.random()*8-4}px)`;
+setTimeout(()=>game.style.transform="translate(0,0)",50);
+if(health<=0)endGame("YOU DIED");
+}
+});
+
+/* medics */
+medics.forEach(m=>{
+let mx=m.offsetLeft,my=m.offsetTop;
+let dx=px-mx,dy=py-my,dist=Math.hypot(dx,dy);
+m.style.left=mx+dx/dist*.6+"px";
+m.style.top=my+dy/dist*.6+"px";
+if(dist<28){
+health=Math.min(100,health+25);
+healthBar.style.width=health+"%";
+if(Math.random()<.4&&blasts<maxBlasts){blasts++;blastText.textContent=blasts;}
+m.remove();
+}
+});
+medics=medics.filter(m=>m.isConnected);
+
+/* bullets */
+bullets.forEach(b=>{
+b.x+=b.vx;b.y+=b.vy;
+b.style.left=b.x+"px";b.style.top=b.y+"px";
+enemies.forEach(e=>{
+let dx=b.x-e.offsetLeft,dy=b.y-e.offsetTop;
+if(Math.hypot(dx,dy)<22){e.remove();b.remove();}
+});
+});
+bullets=bullets.filter(b=>b.isConnected);
+enemies=enemies.filter(e=>e.isConnected);
+
+requestAnimationFrame(gameLoop);
+}
+
+/* level system */
+function startLevel(){
+health=100;healthBar.style.width="100%";
+blasts=maxBlasts;blastText.textContent=blasts;
+time=60;timeText.textContent=time;levelText.textContent=level;
+
+let spawnRate=1;
+let spawnLoop=setInterval(()=>{
+spawnEnemy(spawnRate);
+if(Math.random()<.15)spawnMedic();
+if(time%10==0&&spawnRate<6)spawnRate++;
+},1000);
+
+let safeLoop=setInterval(showSafeZone,15000);
+
+let timer=setInterval(()=>{
+time--;timeText.textContent=time;
+if(time<=0){
+clearInterval(timer);clearInterval(spawnLoop);clearInterval(safeLoop);
+level++;startLevel();
+}
+},1000);
+}
+
+/* game over */
+function endGame(t){
+playing=false;
+gameOverScreen.style.display="flex";
+document.getElementById("msg").textContent=t;
+finalText.textContent="You reached level: "+level;
+}
+
+startLevel();
+gameLoop();
+</script>
+</body>
+</html>
